@@ -43,6 +43,8 @@ int main(int argc, char** argv) {
 		//printf("%s\n", &a[i]);
 		i=i+lenString;
 		k++;
-		
+	
+
+		//nothing here	
 		}
 
