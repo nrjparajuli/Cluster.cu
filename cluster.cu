@@ -7,17 +7,18 @@
 #include <cstring>
 #include <cuda_runtime.h>
 
-__device__ int position;
+__device__ int position;			//index of the largest value
+__device__ int largest;				//value of the largest value
 int lenString=594;
 int maxNumStrings = 1000000;                           
 int threshold = 2;
 
-__global__ void kernel() { position = 3;}
+__global__ void kernel(int set) { position = set;}
 
 __global__ void search(int *d_b, int *d_c, int max_count)
 {
 	int my_id = blockDim.x * blockIdx.x + threadIdx.x;
-	if(d_c[my_id]==0 && (d_b[my_id] > d_b[position])&&(my_id < max_count))
+	if(d_c[my_id]==0 && (d_b[my_id] == largest )&&(my_id < max_count))
 	{
 		position = my_id;
 	}
@@ -33,7 +34,7 @@ __global__ void populate (int *d_b, int *copy_db, int *d_c, int size) {
 		copy_db[my_id] = d_b[my_id] * n;
 	}		
 }
-__global__ void cuda_select(int *db, int size, int *largest)
+__device__ void cuda_select(int *db, int size)
 {
 	int my_id = blockDim.x * blockIdx.x + threadIdx.x;
 	if(my_id < size)
@@ -43,8 +44,9 @@ __global__ void cuda_select(int *db, int size, int *largest)
 		else
 			db[my_id] = db[2*my_id + 1];
 	}
+	
 }
-__host__ void select(int *db, int size, int *largest)
+__global__ void select(int *db, int size)
 {
 	int height = (int)ceil(log2((double)size));
 	int i = 0;
@@ -52,11 +54,11 @@ __host__ void select(int *db, int size, int *largest)
 	for(i = 0; i < height; i++)
 	{
 		size = (int)ceil((double) size/2);
-		int threads_num = 512, blocks_num;
-		blocks_num = (int)ceil((float)size/threads_num);
-		cuda_select<<<blocks_num, threads_num>>>(db, size, largest);
+		//int threads_num = 512, blocks_num;
+		//blocks_num = (int)ceil((float)size/threads_num);
+		cuda_select(db, size);
 	}
-	*largest = db[0];
+	largest = db[0];
 }
 
 __global__ void Compare(char *d_a, int *d_b, int *d_c, int max_count, int lenString, int threshold){
@@ -92,7 +94,7 @@ __global__ void Compare(char *d_a, int *d_b, int *d_c, int max_count, int lenStr
 int main(int argc, char** argv) {//allocation of variables
 	char *strings, *d_a;
 	int *counts, *merged, *d_b, *d_c;	//host copy of a
-	int *largest, *copy_db;
+	int *largest, *copy_db, *copy_copy_db;
 	char copy[lenString+1]; //string to copy in info
 	int numbers=0;
 	int i=0, actual_count=0;
@@ -103,6 +105,7 @@ int main(int argc, char** argv) {//allocation of variables
 	double wallTime;
 	cudaError_t status = (cudaError_t)0;
 
+	int set_value;
 
 
 	//opening the file
@@ -116,10 +119,12 @@ int main(int argc, char** argv) {//allocation of variables
 	if (!(counts= (int*)malloc(size_int))) {
 		fprintf(stderr, "malloc() FAILED (Block)\n"); 
 		exit(0);}
-	merged = (int *)malloc(size_int);	
+	merged = (int *)malloc(size_int);
+	copy_copy_db = (int *)malloc(size_int);
 	cudaMemset(&position,0,sizeof(int));
+	cudaMemset(&largest,0,sizeof(int));
 
-	while( fscanf(fp,"%s %d", copy, &numbers) != EOF && actual_count <1){
+	while( fscanf(fp,"%s %d", copy, &numbers) != EOF && actual_count <100){
 		strcpy(&strings[i],copy);
 		counts[actual_count]=numbers;
 		//printf("%s\n", copy);
@@ -148,11 +153,13 @@ int main(int argc, char** argv) {//allocation of variables
 	int threads_num = 512, blocks_num;
 	blocks_num = (int)ceil((float)actual_count/threads_num);
 
-	populate<<<blocks_num, threads_num>>>(d_b, copy_db, d_c, actual_count);
-	select(copy_db, actual_count, largest);
+
 	
-	kernel<<<1,1>>>();
-	//search<<<blocks_num, threads_num>>>(d_b, d_c, actual_count);
+	populate<<<blocks_num, threads_num>>>(d_b, copy_db, d_c, actual_count); //this does what it is suppose to do so far checking next part
+	select<<<blocks_num, threads_num>>>(copy_db, actual_count);							//not selecting the largest value
+	
+	kernel<<<1,1>>>(set_value);
+	search<<<blocks_num, threads_num>>>(d_b, d_c, actual_count);
 	Compare<<<blocks_num, threads_num>>>(d_a, d_b, d_c, actual_count, lenString, threshold);
 
 		
@@ -166,9 +173,7 @@ int main(int argc, char** argv) {//allocation of variables
 	{
 		printf("%d , %d\n", counts[i], merged[i]);
 	}
-		
-		
-		
+	
 		
 	cudaFree(d_a);
 	cudaFree(d_b);
