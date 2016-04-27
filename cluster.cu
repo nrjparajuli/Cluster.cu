@@ -15,6 +15,17 @@ int threshold = 2;
 
 __global__ void kernel(int set) { position = set;}
 
+__global__ void how_many_left(int *d_c, int *question, int max_count)
+{
+	int temp = 200;
+	int my_id = blockDim.x * blockIdx.x + threadIdx.x;
+	if(my_id==0 && (my_id < max_count))
+	{
+		*question = temp;
+	}
+}
+
+
 __global__ void search(int *d_b, int *d_c, int max_count)
 {
 	int my_id = blockDim.x * blockIdx.x + threadIdx.x;
@@ -30,8 +41,15 @@ __global__ void populate (int *d_b, int *copy_db, int *d_c, int size) {
 	int my_id = blockDim.x * blockIdx.x + threadIdx.x;
 
 	if (my_id < size) {
-		n = abs((bool)d_c[my_id] - 1);
-		copy_db[my_id] = d_b[my_id] * n;
+		if (d_c[my_id] == 2)
+		{
+			copy_db[my_id] = 0;
+		}
+		else
+		{
+			n = abs((bool)d_c[my_id] - 1);
+			copy_db[my_id] = d_b[my_id] * n;
+		}
 	}		
 }
 __device__ void cuda_select(int *db, int size)
@@ -104,13 +122,14 @@ int main(int argc, char** argv) {//allocation of variables
 	struct timeval start, end; 				//using time
 	double wallTime;
 	cudaError_t status = (cudaError_t)0;
-
-	int set_value;
+	
+	int *how_many;
 
 
 	//opening the file
 	FILE *fp;
 	fp=fopen("/cluster/home/charliep/courses/cs360/single-linkage-clustering/Iceland2014.trim.contigs.good.unique.good.filter.unique.count.fasta", "r");
+
 
 
 	if (!(strings= (char *)malloc(size_string))) {
@@ -120,18 +139,18 @@ int main(int argc, char** argv) {//allocation of variables
 		fprintf(stderr, "malloc() FAILED (Block)\n"); 
 		exit(0);}
 	merged = (int *)malloc(size_int);
+	how_many = (int *)malloc(sizeof(int));
 	copy_copy_db = (int *)malloc(size_int);
 	cudaMemset(&position,0,sizeof(int));
 	cudaMemset(&largest,0,sizeof(int));
 
-	while( fscanf(fp,"%s %d", copy, &numbers) != EOF && actual_count <100){
+	while( fscanf(fp,"%s %d", copy, &numbers) != EOF && actual_count <3){
 		strcpy(&strings[i],copy);
 		counts[actual_count]=numbers;
 		//printf("%s\n", copy);
 		//printf("%s\n", &a[i]);
 		i=i+lenString;
-		actual_count++;
-		
+		actual_count++;	
 		}
 	fclose(fp);
 	
@@ -153,12 +172,15 @@ int main(int argc, char** argv) {//allocation of variables
 	int threads_num = 512, blocks_num;
 	blocks_num = (int)ceil((float)actual_count/threads_num);
 
+	//how_many_left<<<blocks_num, threads_num>>>(d_c, how_many, actual_count);
+	
+	printf("%d\n", how_many);
 
 	
 	populate<<<blocks_num, threads_num>>>(d_b, copy_db, d_c, actual_count); //this does what it is suppose to do so far checking next part
 	select<<<blocks_num, threads_num>>>(copy_db, actual_count);							//not selecting the largest value
 	
-	kernel<<<1,1>>>(set_value);
+	//kernel<<<1,1>>>(set_value);
 	search<<<blocks_num, threads_num>>>(d_b, d_c, actual_count);
 	Compare<<<blocks_num, threads_num>>>(d_a, d_b, d_c, actual_count, lenString, threshold);
 
@@ -174,7 +196,7 @@ int main(int argc, char** argv) {//allocation of variables
 		printf("%d , %d\n", counts[i], merged[i]);
 	}
 	
-		
+	
 	cudaFree(d_a);
 	cudaFree(d_b);
 	cudaFree(d_c);
